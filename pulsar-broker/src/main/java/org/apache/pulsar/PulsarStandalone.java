@@ -52,6 +52,7 @@ import org.apache.pulsar.metadata.impl.ZKMetadataStore;
 import org.apache.pulsar.packages.management.storage.filesystem.FileSystemPackagesStorageProvider;
 import org.apache.pulsar.zookeeper.LocalBookkeeperEnsemble;
 
+
 @Slf4j
 public class PulsarStandalone implements AutoCloseable {
 
@@ -439,11 +440,11 @@ public class PulsarStandalone implements AutoCloseable {
     }
 
     private void startBookieWithMetadataStore() throws Exception {
-        if(StringUtils.isBlank(metadataStoreUrl)){
+        if (StringUtils.isBlank(metadataStoreUrl)){
             log.info("Starting BK with RocksDb metadata store");
             metadataStoreUrl = "rocksdb://" + Paths.get(metadataDir).toAbsolutePath();
-        }else{
-            log.info("Starting BK with metadata store:",metadataStoreUrl);
+        } else {
+            log.info("Starting BK with metadata store:", metadataStoreUrl);
         }
         bkCluster = BKCluster.builder()
                 .metadataServiceUri(metadataStoreUrl)
