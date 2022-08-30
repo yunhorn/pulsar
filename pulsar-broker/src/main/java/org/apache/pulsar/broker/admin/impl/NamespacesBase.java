@@ -478,16 +478,12 @@ public abstract class NamespacesBase extends AdminResource {
                         if (topicName.isPartitioned()) {
                             String partitionedTopic = topicName.getPartitionedTopicName();
                             if (!partitionedTopics.contains(partitionedTopic)) {
-                                // Distinguish partitioned topic to avoid duplicate deletion of the same schema
-                                topicFutures.add(pulsar().getAdminClient().topics().deletePartitionedTopicAsync(
-                                        partitionedTopic, true, true));
                                 partitionedTopics.add(partitionedTopic);
                             }
                         } else {
-                            topicFutures.add(pulsar().getAdminClient().topics().deleteAsync(
-                                    topic, true, true));
                             nonPartitionedTopics.add(topic);
                         }
+                        topicFutures.add(pulsar().getAdminClient().topics().deleteAsync(topic, true));
                     } catch (Exception e) {
                         String errorMessage = String.format("Failed to force delete topic %s, "
                                         + "but the previous deletion command of partitioned-topics:%s "
@@ -498,6 +494,11 @@ public abstract class NamespacesBase extends AdminResource {
                         asyncResponse.resume(new RestException(Status.INTERNAL_SERVER_ERROR, errorMessage));
                         return;
                     }
+                }
+
+                for (String partitionedTopic : partitionedTopics) {
+                    topicFutures.add(namespaceResources().getPartitionedTopicResources()
+                            .deletePartitionedTopicAsync(TopicName.get(partitionedTopic)));
                 }
 
                 if (log.isDebugEnabled()) {
@@ -648,7 +649,9 @@ public abstract class NamespacesBase extends AdminResource {
                                         deleteTopicsFuture = FutureUtil.waitForAll(futures);
                                     }
                                     return deleteTopicsFuture.thenCompose(
-                                            ___ -> pulsar().getNamespaceService().removeOwnedServiceUnitAsync(bundle));
+                                            ___ -> pulsar().getNamespaceService().removeOwnedServiceUnitAsync(bundle))
+                                            .thenRun(() -> pulsar().getBrokerService().getBundleStats()
+                                                    .remove(bundle.toString()));
                                 });
                     });
                 });
@@ -1540,10 +1543,10 @@ public abstract class NamespacesBase extends AdminResource {
         }
     }
 
-    protected void internalDeletePersistence() {
-        validateNamespacePolicyOperation(namespaceName, PolicyName.PERSISTENCE, PolicyOperation.WRITE);
-        validatePoliciesReadOnlyAccess();
-        doUpdatePersistence(null);
+    protected CompletableFuture<Void> internalDeletePersistenceAsync() {
+        return validateNamespacePolicyOperationAsync(namespaceName, PolicyName.PERSISTENCE, PolicyOperation.WRITE)
+                .thenCompose(__ -> validatePoliciesReadOnlyAccessAsync())
+                .thenCompose(__ -> doUpdatePersistenceAsync(null));
     }
 
     protected void internalSetPersistence(PersistencePolicies persistence) {
@@ -1567,6 +1570,15 @@ public abstract class NamespacesBase extends AdminResource {
                     e);
             throw new RestException(e);
         }
+    }
+
+    private CompletableFuture<Void> doUpdatePersistenceAsync(PersistencePolicies persistence) {
+        return updatePoliciesAsync(namespaceName, policies -> {
+            policies.persistence = persistence;
+            return policies;
+        }).thenAccept(__ -> log.info("[{}] Successfully updated persistence configuration: namespace={}, map={}",
+                clientAppId(), namespaceName, persistence)
+        );
     }
 
     protected void internalClearNamespaceBacklog(AsyncResponse asyncResponse, boolean authoritative) {
